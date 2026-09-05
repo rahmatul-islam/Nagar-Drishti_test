@@ -27,6 +27,22 @@ class AppwriteClientConfig {
     storage = Storage(client);
     functions = Functions(client);
   }
+
+  /// Verify connectivity to the Appwrite server using the SDK's
+  /// [Client.ping] method (HTTP GET /ping).
+  ///
+  /// Returns `null` when the server responds successfully, or a
+  /// human-readable error string describing why the ping failed.
+  Future<String?> ping() async {
+    try {
+      await client.ping().timeout(const Duration(seconds: 10));
+      return null;
+    } on AppwriteException catch (e) {
+      return 'Appwrite ping failed (${e.code}): ${e.message}';
+    } catch (e) {
+      return 'Connection error: $e';
+    }
+  }
 }
 
 class Environment {
