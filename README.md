@@ -15,3 +15,6 @@ A few resources to get you started if this is your first Flutter project:
 For help getting started with Flutter development, view the
 [online documentation](https://docs.flutter.dev/), which offers tutorials,
 samples, guidance on mobile development, and a full API reference.
+
+
+git clone -b stable --depth 1 https://github.com/flutter/flutter.git && git config --global --add safe.directory /vercel/path0/flutter && ./flutter/bin/flutter pub get
