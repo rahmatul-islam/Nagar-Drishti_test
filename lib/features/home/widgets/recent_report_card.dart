@@ -104,6 +104,7 @@ class RecentReportCard extends StatelessWidget {
                       ? Image.network(
                           report.imagePath,
                           fit: BoxFit.cover,
+                          cacheWidth: 240,
                           errorBuilder: (_, __, ___) => Container(
                             color: AppColors.primaryLight,
                             child: Icon(_getCategoryIcon(report.category),

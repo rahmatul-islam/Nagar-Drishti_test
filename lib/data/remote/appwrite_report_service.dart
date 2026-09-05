@@ -172,11 +172,22 @@ class AppwriteReportService {
 
       dynamic doc;
       try {
+        // Document-level permissions: any signed-in user (incl. City Admin
+        // and Officers) can read and update reports, only the submitting
+        // citizen can delete. This is what makes citizen reports visible on
+        // the Admin dashboard. When document security is disabled on the
+        // table, Appwrite simply ignores these permissions (harmless).
+        final reportPermissions = <String>[
+          Permission.read(Role.users()),
+          Permission.update(Role.users()),
+          Permission.delete(Role.user(realUserId)),
+        ];
         doc = await _appwrite.databases.createDocument(
           databaseId: AppwriteClientConfig.databaseId,
           collectionId: AppwriteClientConfig.reportsCollectionId,
           documentId: ID.unique(),
           data: docPayload,
+          permissions: reportPermissions,
         );
       } on AppwriteException catch (e) {
         debugPrint('Full doc payload failed (${e.code}); trying core payload.');
@@ -200,6 +211,11 @@ class AppwriteReportService {
             collectionId: AppwriteClientConfig.reportsCollectionId,
             documentId: ID.unique(),
             data: corePayload,
+            permissions: <String>[
+              Permission.read(Role.users()),
+              Permission.update(Role.users()),
+              Permission.delete(Role.user(realUserId)),
+            ],
           );
         } catch (_) {
           final minPayload = {
@@ -216,6 +232,11 @@ class AppwriteReportService {
             collectionId: AppwriteClientConfig.reportsCollectionId,
             documentId: ID.unique(),
             data: minPayload,
+            permissions: <String>[
+              Permission.read(Role.users()),
+              Permission.update(Role.users()),
+              Permission.delete(Role.user(realUserId)),
+            ],
           );
         }
       }
@@ -242,43 +263,19 @@ class AppwriteReportService {
       final report = ReportModel.fromJson(docData);
       return AppwriteSubmitResult(isSuccess: true, report: report);
     } catch (e) {
-      debugPrint('Database document creation error handled with local fallback: $e');
+      debugPrint('Database document creation failed after all payload attempts: $e');
     }
 
-    // Reliable Fallback: local ReportModel created with local/network image
-    final fallbackId = 'REP-${DateTime.now().millisecondsSinceEpoch}';
-    final fallbackReport = ReportModel(
-      id: fallbackId,
-      title: '$category সমস্যা',
-      userId: realUserId,
-      imagePath: imageUrl,
-      category: category,
-      confidence: confidence,
-      latitude: latitude,
-      longitude: longitude,
-      address: address,
-      description: description,
-      verificationStatus: VerificationStatus.needsReview,
-      status: ReportStatus.newReport,
-      severity: initialSeverity,
-      riskScore: baseScore,
-      riskFactors: <String>[],
-      priority: initialSeverity.code,
-      createdAt: DateTime.now(),
-      updatedAt: DateTime.now(),
+    // All server write attempts failed (network / permission / schema issue).
+    // Report the failure honestly instead of pretending the report was
+    // submitted — otherwise citizens see a fake "success" for a report the
+    // Admin dashboard can never receive. The create-report screen already
+    // handles isSuccess == false with a visible error + retry option.
+    return AppwriteSubmitResult(
+      isSuccess: false,
+      errorMessage:
+          'সার্ভারে রিপোর্ট সংরক্ষণ করা যায়নি। ইন্টারনেট সংযোগ যাচাই করে আবার চেষ্টা করুন।',
     );
-
-    try {
-      await _activityLogService.createActivityLog(
-        reportId: fallbackId,
-        action: 'রিপোর্ট তৈরি',
-        performedBy: userName,
-        userRole: 'citizen',
-        details: 'নাগরিক কর্তৃক নতুন রিপোর্ট জমা দেওয়া হয়েছে।',
-      );
-    } catch (_) {}
-
-    return AppwriteSubmitResult(isSuccess: true, report: fallbackReport);
   }
 
   /// Update Report Status directly in Appwrite Database Document
@@ -557,7 +554,9 @@ class AppwriteReportService {
             .listDocuments(
               databaseId: AppwriteClientConfig.databaseId,
               collectionId: AppwriteClientConfig.reportsCollectionId,
-              queries: queries,
+              // limit(): Appwrite's default page size is 25 — without this the
+              // Admin dashboard silently never sees older reports.
+              queries: [...queries, Query.limit(500)],
             )
             .timeout(const Duration(seconds: 15));
       } catch (e) {
@@ -566,7 +565,7 @@ class AppwriteReportService {
             .listDocuments(
               databaseId: AppwriteClientConfig.databaseId,
               collectionId: AppwriteClientConfig.reportsCollectionId,
-              queries: [Query.orderDesc('createdAt')],
+              queries: [Query.orderDesc('createdAt'), Query.limit(500)],
             )
             .timeout(const Duration(seconds: 15));
       }

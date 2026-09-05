@@ -44,6 +44,25 @@ class AiService {
     receiveTimeout: const Duration(seconds: 15),
   ));
 
+  /// Maps an AI-detected category to one of the manual dropdown values used
+  /// on the Create Report form, so an AI prediction can prefill the
+  /// citizen-editable category selector (AI suggestion + manual correction).
+  static String toCreateReportCategory(String aiCategory) {
+    switch (normalizeCategory(aiCategory)) {
+      case categoryPothole:
+        return 'Large pothole';
+      case categoryGarbage:
+        return 'Garbage/illegal dumping';
+      case categoryWaterlogging:
+        return 'Severe waterlogging';
+      case categoryBrokenLight:
+        return 'Broken street light';
+      case categoryOther:
+      default:
+        return 'Other';
+    }
+  }
+
   /// Safely normalizes any category string into one of the 5 allowed target categories
   static String normalizeCategory(String? raw) {
     if (raw == null || raw.trim().isEmpty) return categoryOther;

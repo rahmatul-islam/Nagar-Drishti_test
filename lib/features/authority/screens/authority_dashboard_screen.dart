@@ -10,6 +10,7 @@ import '../../../data/remote/appwrite_report_service.dart';
 import '../../../data/remote/officer_service.dart';
 import '../../../models/report_model.dart';
 import '../../../models/user_model.dart';
+import '../../report/services/ai_service.dart';
 import '../../report/services/report_service.dart';
 import '../widgets/report_workflow_details_modal.dart';
 
@@ -374,16 +375,31 @@ class _AuthorityDashboardScreenState extends ConsumerState<AuthorityDashboardScr
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const Scaffold(
-        backgroundColor: Colors.white,
-        body: Center(
-          child: CircularProgressIndicator(color: AppColors.primary),
+    // Freeze-proofing: never hide the whole screen (and the Back button /
+    // AppBar) behind a network call. While the first load is in progress we
+    // still show the full shell so the user can always leave the portal.
+    if (_isLoading && ref.read(reportListProvider).isEmpty) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFF4F6F8),
+        appBar: AppBar(
+          elevation: 0,
+          backgroundColor: Colors.white,
+          title: const Text('সিটি এডমিন কন্ট্রোল', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
+        ),
+        body: const Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(color: AppColors.primary),
+              SizedBox(height: 12),
+              Text('রিপোর্ট লোড হচ্ছে...', style: TextStyle(color: Colors.black54)),
+            ],
+          ),
         ),
       );
     }
 
-    if (_userRole != UserRole.admin) {
+    if (!_isLoading && _userRole != UserRole.admin) {
       return Scaffold(
         appBar: AppBar(title: const Text('অনুমতি নেই'), backgroundColor: AppColors.statusRejected),
         body: Center(
@@ -411,6 +427,7 @@ class _AuthorityDashboardScreenState extends ConsumerState<AuthorityDashboardScr
     final totalCount = reports.length;
     final pendingCount = reports.where((r) => r.verificationStatus == VerificationStatus.needsReview || r.status == ReportStatus.newReport).length;
     final assignedCount = reports.where((r) => r.status == ReportStatus.assigned || r.status == ReportStatus.accepted || r.status == ReportStatus.inProgress).length;
+    final resolvedCount = reports.where((r) => r.status == ReportStatus.resolved || r.status == ReportStatus.finalVerification).length;
 
     // Filter Logic
     final filteredReports = reports.where((r) {
@@ -444,7 +461,13 @@ class _AuthorityDashboardScreenState extends ConsumerState<AuthorityDashboardScr
         title: const Text('সিটি এডমিন কন্ট্রোল', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh_rounded, color: Colors.black54),
+            icon: _isLoading
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black54),
+                  )
+                : const Icon(Icons.refresh_rounded, color: Colors.black54),
             onPressed: _checkRoleAndFetchReports,
             tooltip: 'রিফ্রেশ',
           ),
@@ -456,7 +479,11 @@ class _AuthorityDashboardScreenState extends ConsumerState<AuthorityDashboardScr
         ],
       ),
       body: SafeArea(
-        child: CustomScrollView(
+        child: RefreshIndicator(
+          onRefresh: _checkRoleAndFetchReports,
+          color: AppColors.primary,
+          child: CustomScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
           slivers: [
             // Header Section
             SliverToBoxAdapter(
@@ -516,6 +543,11 @@ class _AuthorityDashboardScreenState extends ConsumerState<AuthorityDashboardScr
               ),
             ),
 
+            // City / Area Overview Section (categories + assigned wards)
+            SliverToBoxAdapter(
+              child: _CityOverview(reports: reports),
+            ),
+
             // Search & Filter Section
             SliverToBoxAdapter(
               child: Padding(
@@ -571,7 +603,7 @@ class _AuthorityDashboardScreenState extends ConsumerState<AuthorityDashboardScr
                           const SizedBox(width: 8),
                           _buildFilterTab('ASSIGNED', 'বরাদ্দকৃত', assignedCount),
                           const SizedBox(width: 8),
-                          _buildFilterTab('RESOLVED', 'সমাধানকৃত', 0),
+                          _buildFilterTab('RESOLVED', 'সমাধানকৃত', resolvedCount),
                         ],
                       ),
                     ),
@@ -630,6 +662,7 @@ class _AuthorityDashboardScreenState extends ConsumerState<AuthorityDashboardScr
               ),
             const SliverToBoxAdapter(child: SizedBox(height: 20)),
           ],
+          ),
         ),
       ),
     );
@@ -760,6 +793,7 @@ class _AuthorityDashboardScreenState extends ConsumerState<AuthorityDashboardScr
                           width: 72,
                           height: 72,
                           fit: BoxFit.cover,
+                          cacheWidth: 220,
                           errorBuilder: (_, __, ___) => Container(width: 72, height: 72, color: Colors.grey[200], child: const Icon(Icons.image, color: Colors.grey)),
                         )
                             : (!kIsWeb && File(report.imagePath).existsSync())
@@ -855,6 +889,166 @@ class _AuthorityDashboardScreenState extends ConsumerState<AuthorityDashboardScr
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+/// শহরের ওভারভিউ — ক্যাটাগরিভিত্তিক ও এলাকায় বরাদ্দকৃত রিপোর্টের সামারি।
+/// ডেটা সরাসরি লোড হওয়া রিপোর্ট তালিকা থেকে আসে (কোনো অতিরিক্ত API কল নয়)।
+class _CityOverview extends StatelessWidget {
+  final List<ReportModel> reports;
+
+  const _CityOverview({required this.reports});
+
+  static (IconData, String, Color) _categoryMeta(String category) {
+    switch (category) {
+      case AiService.categoryPothole:
+        return (Icons.warning_amber_rounded, 'গর্ত', Colors.deepOrange);
+      case AiService.categoryGarbage:
+        return (Icons.delete_outline_rounded, 'আবর্জনা', Colors.brown);
+      case AiService.categoryWaterlogging:
+        return (Icons.water_drop_outlined, 'জলাবদ্ধতা', Colors.blue);
+      case AiService.categoryBrokenLight:
+        return (Icons.lightbulb_outline_rounded, 'স্ট্রিট লাইট', Colors.orange);
+      default:
+        return (Icons.category_outlined, 'অন্যান্য', Colors.blueGrey);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final categoryCounts = <String, int>{};
+    final areaCounts = <String, int>{};
+
+    for (final report in reports) {
+      final cat = AiService.normalizeCategory(report.category);
+      categoryCounts[cat] = (categoryCounts[cat] ?? 0) + 1;
+
+      final area = report.assignedArea;
+      if (area != null && area.isNotEmpty) {
+        areaCounts[area] = (areaCounts[area] ?? 0) + 1;
+      }
+    }
+
+    final sortedCategories = categoryCounts.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    final sortedAreas = areaCounts.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.analytics_outlined, size: 18, color: AppColors.primary),
+              SizedBox(width: 8),
+              Text(
+                'শহরের ওভারভিউ (City Overview)',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (sortedCategories.isEmpty)
+            const Text(
+              'এখনো কোনো রিপোর্ট পাওয়া যায়নি',
+              style: TextStyle(fontSize: 12, color: AppColors.textLight),
+            )
+          else
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: sortedCategories.map((entry) {
+                final meta = _categoryMeta(entry.key);
+                return Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: meta.$3.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: meta.$3.withValues(alpha: 0.3)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(meta.$1, size: 14, color: meta.$3),
+                      const SizedBox(width: 5),
+                      Text(
+                        '${meta.$2}: ${entry.value}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: meta.$3,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }).toList(),
+            ),
+          const SizedBox(height: 12),
+          const Divider(height: 1),
+          const SizedBox(height: 12),
+          const Row(
+            children: [
+              Icon(Icons.location_city_rounded, size: 16, color: AppColors.primary),
+              SizedBox(width: 6),
+              Text(
+                'এলাকাভিত্তিক বরাদ্দ',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (sortedAreas.isEmpty)
+            const Text(
+              'এখনো কোনো এলাকায় বরাদ্দ দেওয়া হয়নি। রিপোর্ট রিভিউ করলে এখানে ওয়ার্ডভিত্তিক হিসাব দেখা যাবে।',
+              style: TextStyle(fontSize: 12, color: AppColors.textLight, height: 1.4),
+            )
+          else
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: sortedAreas.map((entry) {
+                return Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: AppColors.primaryLight,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    '${entry.key}: ${entry.value}',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+        ],
       ),
     );
   }

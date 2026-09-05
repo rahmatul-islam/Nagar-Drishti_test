@@ -461,9 +461,22 @@ class _OfficerDashboardScreenState extends ConsumerState<OfficerDashboardScreen>
   @override
   Widget build(BuildContext context) {
     if (_isVerifyingRole) {
-      return const Scaffold(
-        body: Center(
-          child: CircularProgressIndicator(color: AppColors.primary),
+      // Freeze-proofing: show the shell (AppBar + Back) even while the
+      // officer profile / reports are loading, so the user is never stuck.
+      return Scaffold(
+        backgroundColor: Colors.grey[50],
+        appBar: AppBar(
+          title: const Text('কর্মকর্তা ড্যাশবোর্ড', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        ),
+        body: const Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(color: AppColors.primary),
+              SizedBox(height: 12),
+              Text('লোড হচ্ছে...', style: TextStyle(color: Colors.black54)),
+            ],
+          ),
         ),
       );
     }
@@ -851,6 +864,7 @@ class _OfficerDashboardScreenState extends ConsumerState<OfficerDashboardScreen>
                           ? Image.network(
                         report.imagePath,
                         fit: BoxFit.cover,
+                        cacheWidth: 200,
                         errorBuilder: (_, __, ___) => Container(
                           color: Colors.grey[200],
                           child: const Icon(Icons.image, color: Colors.grey),
