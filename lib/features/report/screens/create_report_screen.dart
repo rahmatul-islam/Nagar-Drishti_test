@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/services/location_service.dart';
 import '../../../data/remote/appwrite_report_service.dart';
+import '../services/ai_service.dart';
 import '../services/report_service.dart';
 import '../widgets/issue_category_card.dart';
 import '../widgets/location_card.dart';
@@ -31,6 +32,12 @@ class _CreateReportScreenState extends ConsumerState<CreateReportScreen> {
   double _longitude = 90.4125;
 
   bool _isSubmitting = false;
+
+  // AI detection state (photo -> AI prediction -> user confirms/changes)
+  final AiService _aiService = AiService();
+  AiDetectionResult? _aiResult;
+  bool _isAnalyzing = false;
+  int _analysisToken = 0;
 
   @override
   void initState() {
@@ -71,6 +78,7 @@ class _CreateReportScreenState extends ConsumerState<CreateReportScreen> {
         setState(() {
           _selectedImage = pickedFile;
         });
+        _analyzeImage(pickedFile);
       }
     } catch (e) {
       if (mounted) {
@@ -83,6 +91,119 @@ class _CreateReportScreenState extends ConsumerState<CreateReportScreen> {
         });
       }
     }
+  }
+
+  /// Runs the AI detection on the picked photo and shows the prediction.
+  /// The citizen can still confirm or change the category manually below —
+  /// so a wrong AI guess never locks the report into a wrong category.
+  Future<void> _analyzeImage(XFile image) async {
+    final token = ++_analysisToken;
+    setState(() {
+      _isAnalyzing = true;
+      _aiResult = null;
+    });
+
+    final result = await _aiService.detectIssue(image.path);
+
+    // Ignore a stale result that arrives after a newer photo was picked
+    // or after the screen was closed.
+    if (!mounted || token != _analysisToken) return;
+
+    setState(() {
+      _isAnalyzing = false;
+      _aiResult = result;
+      // Prefill the category with the AI prediction (editable below).
+      if (result.isRealAi) {
+        _selectedCategory = AiService.toCreateReportCategory(result.category);
+      }
+    });
+  }
+
+  /// Small info banner that shows the AI prediction state:
+  /// analyzing / confident prediction / low confidence / AI unavailable.
+  Widget _buildAiBanner() {
+    if (_isAnalyzing) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          color: AppColors.primaryLight,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
+        ),
+        child: const Row(
+          children: [
+            SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(
+                  strokeWidth: 2, color: AppColors.primary),
+            ),
+            SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                '🤖 AI ছবি বিশ্লেষণ করছে...',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.primaryDark,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final result = _aiResult!;
+    final Color bgColor;
+    final Color fgColor;
+    final IconData icon;
+    final String text;
+
+    if (result.isRealAi && !result.isLowConfidence) {
+      bgColor = const Color(0xFFD1FAE5);
+      fgColor = const Color(0xFF047857);
+      icon = Icons.psychology_rounded;
+      text =
+          '🤖 AI শনাক্তকরণ: ${IssueCategoryCard.getCategoryBangla(_selectedCategory)}\nআত্মবিশ্বাস: ${result.confidencePercentage}% — ভুল হলে নিচে থেকে পরিবর্তন করুন';
+    } else if (result.isRealAi) {
+      bgColor = const Color(0xFFFEF3C7);
+      fgColor = const Color(0xFFB45309);
+      icon = Icons.warning_amber_rounded;
+      text =
+          'AI অনিশ্চিত (আত্মবিশ্বাস মাত্র ${result.confidencePercentage}%) — অনুগ্রহ করে নিচের তালিকা থেকে সঠিক ক্যাটাগরি যাচাই/নির্বাচন করুন';
+    } else {
+      bgColor = Colors.grey[100]!;
+      fgColor = Colors.grey[700]!;
+      icon = Icons.cloud_off_rounded;
+      text = result.description;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: fgColor.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: fgColor, size: 20),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: fgColor,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showImageSourceModal() {
@@ -170,7 +291,9 @@ class _CreateReportScreenState extends ConsumerState<CreateReportScreen> {
     final result = await appwriteService.submitReportToAppwriteResult(
       imageFile: _selectedImage!,
       category: _selectedCategory,
-      confidence: 1.0,
+      confidence: (_aiResult != null && _aiResult!.isRealAi)
+          ? _aiResult!.confidence
+          : 1.0,
       latitude: _latitude,
       longitude: _longitude,
       address: _address,
@@ -295,6 +418,12 @@ class _CreateReportScreenState extends ConsumerState<CreateReportScreen> {
                     ],
                   ),
             const SizedBox(height: 20),
+
+            // AI Prediction Banner (photo -> AI -> confirm/change -> submit)
+            if (_isAnalyzing || _aiResult != null) ...[
+              _buildAiBanner(),
+              const SizedBox(height: 16),
+            ],
 
             // Issue Category Selector Card
             IssueCategoryCard(

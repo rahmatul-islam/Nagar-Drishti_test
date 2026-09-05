@@ -190,7 +190,11 @@ class AppwriteAuthService {
   /// Fetch Current Logged In Account
   Future<models.User?> getCurrentUser() async {
     try {
-      return await _appwrite.account.get();
+      // Explicit timeout: a slow or unreachable server must never leave
+      // callers (splash, dashboards, profile) stuck on a loading spinner.
+      return await _appwrite.account
+          .get()
+          .timeout(const Duration(seconds: 12));
     } catch (e) {
       return null;
     }

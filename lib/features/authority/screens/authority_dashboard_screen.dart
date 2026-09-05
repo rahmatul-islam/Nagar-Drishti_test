@@ -374,16 +374,31 @@ class _AuthorityDashboardScreenState extends ConsumerState<AuthorityDashboardScr
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const Scaffold(
-        backgroundColor: Colors.white,
-        body: Center(
-          child: CircularProgressIndicator(color: AppColors.primary),
+    // Freeze-proofing: never hide the whole screen (and the Back button /
+    // AppBar) behind a network call. While the first load is in progress we
+    // still show the full shell so the user can always leave the portal.
+    if (_isLoading && ref.read(reportListProvider).isEmpty) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFF4F6F8),
+        appBar: AppBar(
+          elevation: 0,
+          backgroundColor: Colors.white,
+          title: const Text('সিটি এডমিন কন্ট্রোল', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
+        ),
+        body: const Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(color: AppColors.primary),
+              SizedBox(height: 12),
+              Text('রিপোর্ট লোড হচ্ছে...', style: TextStyle(color: Colors.black54)),
+            ],
+          ),
         ),
       );
     }
 
-    if (_userRole != UserRole.admin) {
+    if (!_isLoading && _userRole != UserRole.admin) {
       return Scaffold(
         appBar: AppBar(title: const Text('অনুমতি নেই'), backgroundColor: AppColors.statusRejected),
         body: Center(
@@ -411,6 +426,7 @@ class _AuthorityDashboardScreenState extends ConsumerState<AuthorityDashboardScr
     final totalCount = reports.length;
     final pendingCount = reports.where((r) => r.verificationStatus == VerificationStatus.needsReview || r.status == ReportStatus.newReport).length;
     final assignedCount = reports.where((r) => r.status == ReportStatus.assigned || r.status == ReportStatus.accepted || r.status == ReportStatus.inProgress).length;
+    final resolvedCount = reports.where((r) => r.status == ReportStatus.resolved || r.status == ReportStatus.finalVerification).length;
 
     // Filter Logic
     final filteredReports = reports.where((r) {
@@ -444,7 +460,13 @@ class _AuthorityDashboardScreenState extends ConsumerState<AuthorityDashboardScr
         title: const Text('সিটি এডমিন কন্ট্রোল', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh_rounded, color: Colors.black54),
+            icon: _isLoading
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black54),
+                  )
+                : const Icon(Icons.refresh_rounded, color: Colors.black54),
             onPressed: _checkRoleAndFetchReports,
             tooltip: 'রিফ্রেশ',
           ),
@@ -456,7 +478,11 @@ class _AuthorityDashboardScreenState extends ConsumerState<AuthorityDashboardScr
         ],
       ),
       body: SafeArea(
-        child: CustomScrollView(
+        child: RefreshIndicator(
+          onRefresh: _checkRoleAndFetchReports,
+          color: AppColors.primary,
+          child: CustomScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
           slivers: [
             // Header Section
             SliverToBoxAdapter(
@@ -571,7 +597,7 @@ class _AuthorityDashboardScreenState extends ConsumerState<AuthorityDashboardScr
                           const SizedBox(width: 8),
                           _buildFilterTab('ASSIGNED', 'বরাদ্দকৃত', assignedCount),
                           const SizedBox(width: 8),
-                          _buildFilterTab('RESOLVED', 'সমাধানকৃত', 0),
+                          _buildFilterTab('RESOLVED', 'সমাধানকৃত', resolvedCount),
                         ],
                       ),
                     ),
@@ -630,6 +656,7 @@ class _AuthorityDashboardScreenState extends ConsumerState<AuthorityDashboardScr
               ),
             const SliverToBoxAdapter(child: SizedBox(height: 20)),
           ],
+          ),
         ),
       ),
     );
@@ -760,6 +787,7 @@ class _AuthorityDashboardScreenState extends ConsumerState<AuthorityDashboardScr
                           width: 72,
                           height: 72,
                           fit: BoxFit.cover,
+                          cacheWidth: 220,
                           errorBuilder: (_, __, ___) => Container(width: 72, height: 72, color: Colors.grey[200], child: const Icon(Icons.image, color: Colors.grey)),
                         )
                             : (!kIsWeb && File(report.imagePath).existsSync())
