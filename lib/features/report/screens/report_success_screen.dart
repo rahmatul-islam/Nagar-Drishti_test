@@ -50,7 +50,7 @@ class ReportSuccessScreen extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               Text(
-                'আপনার রিপোর্টটি লোকাল ডেটাবেজে সংরক্ষিত হয়েছে। সংশ্লিষ্ট কর্তৃপক্ষ শীঘ্রই সমস্যাটি পর্যালোচনা করবে।',
+                'আপনার রিপোর্টটি সিটি কর্পোরেশনের ক্লাউড ডেটাবেজে জমা হয়েছে। সংশ্লিষ্ট কর্তৃপক্ষ শীঘ্রই সমস্যাটি পর্যালোচনা করবে।',
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       fontSize: 15,
@@ -69,7 +69,7 @@ class ReportSuccessScreen extends StatelessWidget {
                       _DetailRow(label: 'সমস্যার ধরণ', value: report.category),
                       const Divider(height: 16),
                       _DetailRow(
-                          label: 'AI নিশ্চিতকরণ',
+                          label: 'ক্যাটাগরি নিশ্চিতকরণ মান',
                           value:
                               '${(report.confidence <= 1.0 ? report.confidence * 100 : report.confidence).round()}%'),
                       const Divider(height: 16),

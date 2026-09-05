@@ -284,7 +284,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   SizedBox(height: 4),
                   Text(
-                    'Powered by Flutter, Appwrite & TensorFlow',
+                    'Powered by Flutter & Appwrite Cloud',
                     style: TextStyle(fontSize: 11, color: AppColors.textLight),
                   ),
                 ],
