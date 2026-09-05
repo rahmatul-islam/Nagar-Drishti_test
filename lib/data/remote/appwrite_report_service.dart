@@ -29,9 +29,17 @@ class AppwriteReportService {
         _authService = AppwriteAuthService(config),
         _activityLogService = AppwriteActivityLogService(config);
 
-  /// Tests Appwrite database and storage connectivity
+  /// Tests Appwrite connectivity: first a lightweight SDK ping
+  /// ([Client.ping] -> GET /ping), then storage and database checks.
   Future<String?> testAppwriteConnection() async {
     try {
+      // 1. Basic server reachability via client.ping()
+      final pingError = await _appwrite.ping();
+      if (pingError != null) {
+        return pingError;
+      }
+
+      // 2. Storage reachability
       await _appwrite.storage.listFiles(
         bucketId: AppwriteClientConfig.storageBucketId,
         queries: [Query.limit(1)],

@@ -59,10 +59,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Text(
-                'Appwrite সংযোগ পরীক্ষা ব্যর্থ হয়েছে। আবার চেষ্টা করুন।'),
+            content: Text('Appwrite connection failed:\n$errorStr'),
+            duration: const Duration(seconds: 12),
             backgroundColor: Colors.deepOrange,
-            duration: const Duration(seconds: 6),
             action: SnackBarAction(
               label: 'আবার চেষ্টা',
               textColor: Colors.white,
